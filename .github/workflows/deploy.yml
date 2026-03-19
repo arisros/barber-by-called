@@ -114,7 +114,7 @@ jobs:
             echo "🔗 Proxy jump: VPS → Homelab (${{ secrets.HOMELAB_HOST }})"
 
             ssh -o StrictHostKeyChecking=no \
-                ${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }} << 'DEPLOY_EOF'
+                ${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }} << DEPLOY_EOF
               set -euo pipefail
 
               echo "📦 Pulling image: ${IMAGE}"
@@ -148,7 +148,7 @@ jobs:
           envs: APP_NAME,K8S_NAMESPACE
           script: |
             ssh -o StrictHostKeyChecking=no \
-                ${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }} << 'VERIFY_EOF'
+                ${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }} << VERIFY_EOF
               set -euo pipefail
 
               echo "── Deployment Status ──"
