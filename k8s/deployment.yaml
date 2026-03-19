@@ -22,25 +22,12 @@ metadata:
   name: barber-by-called
   namespace: apps
   labels:
-    # -------------------------------------------------------------------------
-    # 8 Required Labels (homelab convention)
-    # All resources in the cluster MUST have these 8 labels for consistency,
-    # monitoring dashboards (Grafana), and label-based filtering.
-    #   1. cluster   — always "homelab"
-    #   2. namespace — the K8s namespace (apps, monitoring, vault, etc.)
-    #   3. app       — application identifier (matches deployment name)
-    #   4. service   — service name (usually same as app)
-    #   5. env       — environment: production | staging
-    #   6. version   — image tag / release version
-    #   7. site      — domain name the app serves
-    #   8. team      — team or owner identifier
-    # -------------------------------------------------------------------------
     cluster: homelab
     namespace: apps
     app: barber-by-called
     service: barber-by-called
     env: production
-    version: __VERSION__
+    version: latest
     site: barber.arisjirat.com
     team: arisjirat
 spec:
@@ -56,28 +43,15 @@ spec:
         app: barber-by-called
         service: barber-by-called
         env: production
-        version: __VERSION__
+        version: latest
         site: barber.arisjirat.com
         team: arisjirat
     spec:
       containers:
         - name: barber-by-called
-          # TODO: Replace "emandor" with your actual GitHub org/username
-          # if images are pushed to a different GHCR namespace.
-          image: ghcr.io/emandor/barber-by-called:__VERSION__
+          image: ghcr.io/arisros/barber-by-called:latest
           ports:
-            - containerPort: __CONTAINER_PORT__
-          # -------------------------------------------------------------------
-          # Resource Tuning Guide (adjust per app type):
-          #
-          #   Static sites (Astro):    32Mi / 10m  →  128Mi / 200m
-          #   Go APIs (gin/fiber):     32Mi / 10m  →  128Mi / 200m
-          #   Node.js / Strapi:        64Mi / 50m  →  256Mi / 500m
-          #   Laravel (FPM):          128Mi / 50m  →  512Mi / 500m
-          #   Flutter web:             32Mi / 10m  →  128Mi / 200m
-          #
-          # Keep requests low — k3d nodes are resource-constrained.
-          # -------------------------------------------------------------------
+            - containerPort: 80
           resources:
             requests:
               memory: "32Mi"
@@ -88,22 +62,15 @@ spec:
           livenessProbe:
             httpGet:
               path: /
-              port: __CONTAINER_PORT__
+              port: 80
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /
-              port: __CONTAINER_PORT__
+              port: 80
             initialDelaySeconds: 5
             periodSeconds: 10
-          # -------------------------------------------------------------------
-          # envFrom — Optional. Only include if the app needs secrets from Vault.
-          # Requires a matching VaultStaticSecret (see vss.yaml) to create the
-          # K8s Secret named "barber-by-called-secret".
-          # If the app has no secrets, you can safely remove this block.
-          # The "optional: true" flag prevents pod crash if secret doesn't exist.
-          # -------------------------------------------------------------------
           envFrom:
             - secretRef:
                 name: barber-by-called-secret
