@@ -42,7 +42,7 @@ env:
   APP_NAME: barber-by-called
   CONTAINER_NAME: barber-by-called
   K8S_NAMESPACE: apps
-  K3D_CLUSTER: k3s-default
+  K3D_CLUSTER: homelab
 
 jobs:
   build-and-push:
