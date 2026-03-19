@@ -107,17 +107,20 @@ jobs:
           K3D_CLUSTER: ${{ env.K3D_CLUSTER }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: IMAGE,APP_NAME,CONTAINER_NAME,K8S_NAMESPACE,K3D_CLUSTER,GHCR_USER,GHCR_TOKEN
+          envs: IMAGE,APP_NAME,CONTAINER_NAME,K8S_NAMESPACE,K3D_CLUSTER,GHCR_USER,GHCR_TOKEN,GITHUB_REPO,COMMIT_SHA
           script: |
             echo "🔗 Proxy jump: VPS → Homelab (${{ secrets.HOMELAB_HOST }})"
 
             ssh -o StrictHostKeyChecking=no \
                 ${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }} << DEPLOY_EOF
               set -euo pipefail
+              RAW="https://raw.githubusercontent.com/${GITHUB_REPO}/${COMMIT_SHA}"
 
               echo "🔑 Logging in to GHCR..."
               echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
@@ -128,80 +131,10 @@ jobs:
               echo "📥 Importing image into k3d cluster: ${K3D_CLUSTER}"
               k3d image import "${IMAGE}" -c "${K3D_CLUSTER}"
 
-              echo "🏗️ Applying k8s manifests (namespace + service + deployment)..."
+              echo "🏗️ Applying k8s manifests from repo..."
               kubectl create namespace "${K8S_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
-
-              kubectl apply -f - <<SERVICE_EOF
-              apiVersion: v1
-              kind: Service
-              metadata:
-                name: ${APP_NAME}
-                namespace: ${K8S_NAMESPACE}
-                labels:
-                  app: ${APP_NAME}
-                  cluster: homelab
-                  env: production
-              spec:
-                type: NodePort
-                selector:
-                  app: ${APP_NAME}
-                ports:
-                  - port: 80
-                    targetPort: 80
-                    nodePort: 30084
-              SERVICE_EOF
-
-              kubectl apply -f - <<DEPLOYMENT_EOF
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: ${APP_NAME}
-                namespace: ${K8S_NAMESPACE}
-                labels:
-                  app: ${APP_NAME}
-                  cluster: homelab
-                  env: production
-              spec:
-                replicas: 1
-                selector:
-                  matchLabels:
-                    app: ${APP_NAME}
-                template:
-                  metadata:
-                    labels:
-                      app: ${APP_NAME}
-                      cluster: homelab
-                      env: production
-                  spec:
-                    containers:
-                      - name: ${CONTAINER_NAME}
-                        image: ${IMAGE}
-                        ports:
-                          - containerPort: 80
-                        resources:
-                          requests:
-                            memory: "32Mi"
-                            cpu: "10m"
-                          limits:
-                            memory: "128Mi"
-                            cpu: "200m"
-                        livenessProbe:
-                          httpGet:
-                            path: /
-                            port: 80
-                          initialDelaySeconds: 10
-                          periodSeconds: 30
-                        readinessProbe:
-                          httpGet:
-                            path: /
-                            port: 80
-                          initialDelaySeconds: 5
-                          periodSeconds: 10
-                        envFrom:
-                          - secretRef:
-                              name: ${APP_NAME}-secret
-                              optional: true
-              DEPLOYMENT_EOF
+              curl -sf -H "Authorization: token ${GHCR_TOKEN}" "${RAW}/k8s/service-nodeport.yaml" | kubectl apply -f -
+              curl -sf -H "Authorization: token ${GHCR_TOKEN}" "${RAW}/k8s/deployment.yaml" | kubectl apply -f -
 
               echo "🚀 Updating image: ${APP_NAME} → ${IMAGE}"
               kubectl set image deployment/"${APP_NAME}" \
