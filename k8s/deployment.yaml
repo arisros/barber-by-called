@@ -50,6 +50,7 @@ spec:
       containers:
         - name: barber-by-called
           image: ghcr.io/arisros/barber-by-called:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
           resources:

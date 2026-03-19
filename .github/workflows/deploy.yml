@@ -103,6 +103,8 @@ jobs:
       - name: Encode k8s manifests
         id: manifests
         run: |
+          IMAGE="${{ needs.build-and-push.outputs.image-full }}"
+          sed -i "s|ghcr.io/arisros/barber-by-called:latest|${IMAGE}|g" k8s/deployment.yaml
           echo "svc=$(base64 -w0 < k8s/service-nodeport.yaml)" >> "$GITHUB_OUTPUT"
           echo "deploy=$(base64 -w0 < k8s/deployment.yaml)" >> "$GITHUB_OUTPUT"
 
@@ -143,11 +145,6 @@ jobs:
               kubectl create namespace "${K8S_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
               echo "${SVC_MANIFEST}" | base64 -d | kubectl apply -f -
               echo "${DEPLOY_MANIFEST}" | base64 -d | kubectl apply -f -
-
-              echo "🚀 Updating image: ${APP_NAME} → ${IMAGE}"
-              kubectl set image deployment/"${APP_NAME}" \
-                "${CONTAINER_NAME}=${IMAGE}" \
-                -n "${K8S_NAMESPACE}"
 
               echo "⏳ Waiting for rollout to complete..."
               kubectl rollout status deployment/"${APP_NAME}" \
