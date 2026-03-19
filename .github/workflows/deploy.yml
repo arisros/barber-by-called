@@ -1,0 +1,176 @@
+# CI/CD — Homelab k3d Deploy via SSH Chain
+# Builds Docker image, pushes to GHCR, then deploys to a homelab k3d cluster
+# through a two-hop SSH chain: GitHub Actions → VPS → Homelab.
+# Copy to: .github/workflows/deploy.yml
+#
+# ┌──────────────────┐   SSH    ┌──────────────────┐  SSH (WG)  ┌──────────────────┐
+# │  GitHub Actions   │ ──────→ │   VPS (public)   │ ────────→  │  Homelab (k3d)   │
+# │  (build & push)   │         │  159.65.15.126   │            │  10.10.0.1       │
+# └──────────────────┘         └──────────────────┘            └──────────────────┘
+#                                                                  │
+#                                                                  ├─ docker pull
+#                                                                  ├─ k3d image import
+#                                                                  ├─ kubectl set image
+#                                                                  └─ kubectl rollout status
+#
+# Deployment Topology:
+#   1. GitHub Actions builds the Docker image and pushes to GHCR (ghcr.io)
+#   2. SSH into VPS (public IP), then proxy-jump to Homelab (WireGuard IP)
+#   3. On Homelab: pull image from GHCR, import into k3d cluster,
+#      update the Kubernetes deployment, and verify rollout
+#
+# Required GitHub Secrets:
+#   VPS_HOST       — VPS public IP address (e.g. 159.65.15.126)
+#   VPS_USER       — SSH username on the VPS (e.g. deploy)
+#   VPS_SSH_KEY    — SSH private key for VPS access (no passphrase, OpenSSH format)
+#   HOMELAB_USER   — SSH username on the homelab machine (e.g. aris)
+#   HOMELAB_HOST   — Homelab WireGuard IP (e.g. 10.10.0.1)
+#
+# The GITHUB_TOKEN is used automatically for GHCR authentication.
+# The VPS must have SSH access to the homelab via WireGuard tunnel.
+# The homelab must have: docker, k3d, kubectl installed and configured.
+
+name: Deploy to Homelab (k3d)
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  APP_NAME: myapp              # TODO: customize — Kubernetes deployment name
+  CONTAINER_NAME: myapp        # TODO: customize — container name in deployment spec
+  K8S_NAMESPACE: apps          # TODO: customize — Kubernetes namespace (default: apps)
+  K3D_CLUSTER: k3s-default     # TODO: customize — k3d cluster name
+
+jobs:
+  build-and-push:
+    name: Build & Push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+      image-full: ${{ steps.full-image.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+
+      - name: Set full image reference
+        id: full-image
+        run: |
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Homelab
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Deploy via SSH chain (VPS → Homelab)
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE: ${{ needs.build-and-push.outputs.image-full }}
+          APP_NAME: ${{ env.APP_NAME }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+          K8S_NAMESPACE: ${{ env.K8S_NAMESPACE }}
+          K3D_CLUSTER: ${{ env.K3D_CLUSTER }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: IMAGE,APP_NAME,CONTAINER_NAME,K8S_NAMESPACE,K3D_CLUSTER
+          script: |
+            echo "🔗 Proxy jump: VPS → Homelab (${{ secrets.HOMELAB_HOST }})"
+
+            ssh -o StrictHostKeyChecking=no \
+                ${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }} << 'DEPLOY_EOF'
+              set -euo pipefail
+
+              echo "📦 Pulling image: ${IMAGE}"
+              docker pull "${IMAGE}"
+
+              echo "📥 Importing image into k3d cluster: ${K3D_CLUSTER}"
+              k3d image import "${IMAGE}" -c "${K3D_CLUSTER}"
+
+              echo "🚀 Updating deployment: ${APP_NAME} in namespace ${K8S_NAMESPACE}"
+              kubectl set image deployment/"${APP_NAME}" \
+                "${CONTAINER_NAME}=${IMAGE}" \
+                -n "${K8S_NAMESPACE}"
+
+              echo "⏳ Waiting for rollout to complete..."
+              kubectl rollout status deployment/"${APP_NAME}" \
+                -n "${K8S_NAMESPACE}" \
+                --timeout=120s
+
+              echo "✅ Deployed ${IMAGE} → ${APP_NAME} ($(date))"
+            DEPLOY_EOF
+
+      - name: Post-deploy verification
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          APP_NAME: ${{ env.APP_NAME }}
+          K8S_NAMESPACE: ${{ env.K8S_NAMESPACE }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: APP_NAME,K8S_NAMESPACE
+          script: |
+            ssh -o StrictHostKeyChecking=no \
+                ${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }} << 'VERIFY_EOF'
+              set -euo pipefail
+
+              echo "── Deployment Status ──"
+              kubectl get deployment "${APP_NAME}" -n "${K8S_NAMESPACE}" -o wide
+
+              echo ""
+              echo "── Pod Status ──"
+              kubectl get pods -n "${K8S_NAMESPACE}" -l app="${APP_NAME}" -o wide
+
+              echo ""
+              echo "── Recent Events ──"
+              kubectl get events -n "${K8S_NAMESPACE}" \
+                --field-selector involvedObject.name="${APP_NAME}" \
+                --sort-by='.lastTimestamp' | tail -5
+
+              # Verify all pods are ready
+              READY=$(kubectl get deployment "${APP_NAME}" -n "${K8S_NAMESPACE}" \
+                -o jsonpath='{.status.readyReplicas}')
+              DESIRED=$(kubectl get deployment "${APP_NAME}" -n "${K8S_NAMESPACE}" \
+                -o jsonpath='{.spec.replicas}')
+
+              if [ "${READY}" = "${DESIRED}" ]; then
+                echo ""
+                echo "✅ All ${READY}/${DESIRED} pods ready"
+              else
+                echo ""
+                echo "❌ Only ${READY}/${DESIRED} pods ready — check logs"
+                exit 1
+              fi
+            VERIFY_EOF

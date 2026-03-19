@@ -1,0 +1,10 @@
+.env
+node_modules/
+dist/
+.tmp/
+bin/
+*.local
+.DS_Store
+vendor/
+*.sqlite
+*.db

@@ -1,0 +1,66 @@
+# =============================================================================
+# NodePort Service Template — Homelab K3d Cluster
+# =============================================================================
+# Usage: Copy to your project's k8s/ directory and replace placeholders:
+#   barber-by-called       → e.g. arisjirat-site, wa-bot
+#   __VERSION__        → e.g. latest, v1.0.0
+#   barber.arisjirat.com         → e.g. arisjirat.com
+#   __CONTAINER_PORT__ → e.g. 3000, 8080, 4321
+#   30084       → e.g. 30080 (see allocation table below)
+#
+# Quick replace:
+#   sed -i '' \
+#     -e 's/barber-by-called/my-app/g' \
+#     -e 's/__VERSION__/latest/g' \
+#     -e 's/barber.arisjirat.com/my-app.arisjirat.com/g' \
+#     -e 's/__CONTAINER_PORT__/3000/g' \
+#     -e 's/30084/30083/g' \
+#     service-nodeport.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: barber-by-called
+  namespace: apps
+  labels:
+    cluster: homelab
+    namespace: apps
+    app: barber-by-called
+    service: barber-by-called
+    env: production
+    version: __VERSION__
+    site: barber.arisjirat.com
+    team: arisjirat
+spec:
+  # ---------------------------------------------------------------------------
+  # NodePort exposes the service on a static port on every node's IP.
+  # Valid range: 30000–32767 (Kubernetes default).
+  #
+  # ┌─────────────────────────────────────────────────────────────────────────┐
+  # │  Current Port Allocations (homelab)                                    │
+  # ├────────────┬────────────────────────────────────────────────────────────┤
+  # │  30080     │  arisjirat-site (main website)                            │
+  # │  30081     │  nocode app #1                                            │
+  # │  30082     │  nocode app #2                                            │
+  # │  30300     │  marcom (marketing & communications)                      │
+  # │  30500     │  wa-bot (WhatsApp bot)                                    │
+  # ├────────────┼────────────────────────────────────────────────────────────┤
+  # │  Convention                                                            │
+  # │  30080–30089  → app services                                           │
+  # │  30090–30099  → monitoring / observability (Grafana, Prometheus, etc.)  │
+  # │  30100–30199  → reserved for future infra services                     │
+  # │  30300–30399  → marketing / content tools                              │
+  # │  30500–30599  → bots & automation                                      │
+  # └─────────────────────────────────────────────────────────────────────────┘
+  #
+  # Before assigning a new nodePort, check existing allocations:
+  #   kubectl get svc -n apps -o wide
+  # ---------------------------------------------------------------------------
+  type: NodePort
+  selector:
+    app: barber-by-called
+  ports:
+    - port: __CONTAINER_PORT__
+      targetPort: __CONTAINER_PORT__
+      nodePort: 30084
