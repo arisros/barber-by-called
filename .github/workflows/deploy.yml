@@ -105,8 +105,8 @@ jobs:
           CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
           K8S_NAMESPACE: ${{ env.K8S_NAMESPACE }}
           K3D_CLUSTER: ${{ env.K3D_CLUSTER }}
-          GHCR_USER: ${{ secrets.GHCR_USER }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
