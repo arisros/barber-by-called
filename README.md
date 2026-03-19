@@ -1,4 +1,4 @@
-# Astro Site — Template
+# Barber by Called
 
 ## Stack
 - **Framework:** Astro 4+
