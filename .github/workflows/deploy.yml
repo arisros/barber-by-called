@@ -39,10 +39,10 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  APP_NAME: myapp              # TODO: customize — Kubernetes deployment name
-  CONTAINER_NAME: myapp        # TODO: customize — container name in deployment spec
-  K8S_NAMESPACE: apps          # TODO: customize — Kubernetes namespace (default: apps)
-  K3D_CLUSTER: k3s-default     # TODO: customize — k3d cluster name
+  APP_NAME: barber-by-called
+  CONTAINER_NAME: barber-by-called
+  K8S_NAMESPACE: apps
+  K3D_CLUSTER: k3s-default
 
 jobs:
   build-and-push:
@@ -76,6 +76,11 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
 
       - name: Build and push
         uses: docker/build-push-action@v6
